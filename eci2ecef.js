@@ -5,7 +5,7 @@
 //       however, this project only implements:
 //       * class equinox based, 2000b method for precession-nutation effects (e.g., iau00f2i 'b' option)
 // tested with ex3_1415.m in matlab source codes
-// ex3_1415.m results are verified with 
+// ex3_1415.m results are verified with
 //  https://hpiers.obspm.fr/eop-pc/index.php?index=rotation&lang=en
 //  Matlab - HPIERS errors are up to few milimeters
 //  Matlab - JS errors are around 1e-12
@@ -13,23 +13,24 @@
 //
 // TODO: import from https://celestrak.org/software/vallado/matlab.zip as of 2023 May 09
 
-const vlib = require("../aoLibJs/vector");
+const vlib = require("../vectorLib/vector");
 const fs = require("fs");
 
 // test code:
-const t = new Date("2019-01-01T00:00:00.000Z") / 1000.0;
 
-// download latest eop:
-checkAndUpdateEopFile(t);
-const eop = readEopParameters(t);
+// // download latest eop:
 
-// unix time in seconds:
-// const t = new Date("2014-01-01T00:00:00.000Z") / 1000.0;
-const recef = vlib.vec(-1033.479383, 7901.2952754, 6380.3565958);
-const vecef = vlib.vec(-3.22563652, -2.87245145, 5.531924446);
-const aecef = vlib.vec(0.001, 0.002, 0.003);
-console.log(ecef2eci(t, recef, vecef, aecef));
-// end of test code
+//const t = new Date("2019-01-01T00:00:00.000Z") / 1000.0;
+// checkAndUpdateEopFile(t);
+// const eop = readEopParameters(t);
+
+// // unix time in seconds:
+// // const t = new Date("2014-01-01T00:00:00.000Z") / 1000.0;
+// const recef = vlib.vec(-1033.479383, 7901.2952754, 6380.3565958);
+// const vecef = vlib.vec(-3.22563652, -2.87245145, 5.531924446);
+// const aecef = vlib.vec(0.001, 0.002, 0.003);
+// console.log(ecef2eci(t, recef, vecef, aecef));
+// // end of test code
 
 // ecef to eci given unix time in seconds (UTC0)
 function ecef2eci(tUnixSec, recef, vecef, aecef) {
@@ -433,8 +434,8 @@ function generateIau00in_constants() {
 // % [prec,psia,wa,ea,xa] = precess ( ttt, opt );
 function precess(ttt) {
   const convrt = Math.PI / (180.0 * 3600.0);
-  const ttt2 = ttt * ttt;
-  const ttt3 = ttt2 * ttt;
+  // const ttt2 = ttt * ttt;
+  // const ttt3 = ttt2 * ttt;
 
   // % ------------------ iau 03 precession angles -------------------
   const oblo_ = 84381.406;
@@ -760,16 +761,16 @@ function checkAndUpdateEopFile(tCheck) {
 }
 
 // read EOP parameters given unix seconds
-// parameter at begin of the day of the unix seconds is used, 
+// parameter at begin of the day of the unix seconds is used,
 // no data interpolation is made
 function readEopParameters(tUnix) {
   const lines = readFile("eopData.csv");
   const firstLineValues = lines[1].split(",");
-  const lastLineValues  = lines[lines.length-3].split(",");
+  const lastLineValues = lines[lines.length - 3].split(",");
   const mjdFirst = new Date(parseFloat(firstLineValues[1]));
-  const mjdLast  = new Date(parseFloat(lastLineValues[1]));
+  const mjdLast = new Date(parseFloat(lastLineValues[1]));
   const mjd = unix2mjd(tUnix);
-  if (mjd < mjdFirst && mjd > mjdLast) {
+  if (mjd < mjdFirst || mjd > mjdLast) {
     console.log(
       "Error: requested time is earlier than available EOP file\n Earliest Time in EOP: ",
       new Date(1000 * mjd2unix(mjdFirst)),
@@ -781,18 +782,408 @@ function readEopParameters(tUnix) {
       xp: 0.0,
       yp: 0.0,
       dut1: 0.0, // UT1 - UTC
-      lod: 0.0,  // length of day difference
-      dat: 37    // TAI - UTC
-    }
+      lod: 0.0, // length of day difference
+      dat: 37, // TAI - UTC
+    };
   } else {
     const diff = Math.floor(mjd) - mjdFirst;
-    const v = lines[1+diff].split(",");
+    const v = lines[1 + diff].split(",");
     return {
       xp: parseFloat(v[2]),
       yp: parseFloat(v[3]),
       dut1: parseFloat(v[4]), // UT1 - UTC
-      lod: parseFloat(v[5]),  // length of day difference
-      dat: parseFloat(v[10])  // TAI - UTC
-    }
+      lod: parseFloat(v[5]), // length of day difference
+      dat: parseFloat(v[10]), // TAI - UTC
+    };
   }
 }
+
+/** Class for applying ECEF to ECI or vice-versa coordinate transforms.
+ * Retrieving Earth Orientation parameters from web
+ */
+class EarthOrientation {
+  // public members:
+  /**
+   * @public
+   * @member {number} lod - Length Of Day in seconds
+   */
+  lod = 37;
+
+  /**
+   * @public
+   * @member {number} xp - Pole x coordinate in arcseconds, call setEop() if member is changed without the constructor
+   */
+  xp = 0.0;
+  /**
+   * @public
+   * @member {number} yp - Pole y coordinate in arcseconds, call setEop() if member is changed without the constructor
+   */
+  yp = 0.0;
+
+  /**
+   * @public
+   * @member {number} dat - TAI - UTC in seconds, call setEop() if member is changed without the constructor
+   */
+  dat = 0.0;
+
+  /**
+   * @public
+   * @member {number} dut1 - UT1 - UTC in seconds, call setEop() if member is changed without the constructor
+   */
+  dut1 = 0.0;
+
+  /**
+   * @public
+   * @member {Vector} recef - Position in ECEF (ITRF) in km, call ecef2eci(t) to update eci counterpart
+   */
+  recef = vlib.vec(0, 0, 0);
+  /**
+   * @public
+   * @member {Vector} vecef - Velocity in ECEF (ITRF) in km/s, call ecef2eci(t) to update eci counterpart
+   */
+  vecef = vlib.vec(0, 0, 0);
+  /**
+   * @public
+   * @member {Vector} aecef - Acceleration in ECEF (ITRF) in km/s^2, call ecef2eci(t) to update eci counterpart
+   */
+  aecef = vlib.vec(0, 0, 0);
+
+  /**
+   * @public
+   * @member {Vector} reci - Position in ECI (GCRS) in km, call eci2ecef(t) to update ecef counterpart
+   */
+  reci = vlib.vec(0, 0, 0);
+  /**
+   * @public
+   * @member {Vector} veci - Velocity in ECI (GCRS) in km/s, call eci2ecef(t) to update ecef counterpart
+   */
+  veci = vlib.vec(0, 0, 0);
+  /**
+   * @public
+   * @member {Vector} reci - Acceleration in ECI (GCRS) in km/s^2, call eci2ecef(t) to update ecef counterpart
+   */
+  aeci = vlib.vec(0, 0, 0);
+  /**
+   * @public
+   * @member {Matrix3x3} Aeci2ecef - ECEF (ITRF) to ECI (GCRS) transformation matrix, call ecef2eci(t) or eci2ecef(t) to update this member, do not set value manually
+   */
+  Aecef2eci = vlib.eye(3);
+  /**
+   * @public
+   * @member {Matrix3x3} Aeci2ecef - ECI (GCRS) to ECEF (ITRF) transformation matrix, call ecef2eci(t) or eci2ecef(t) to update this member, do not set value manually
+   */
+  Aeci2ecef = vlib.eye(3);
+
+  // private members:
+  #ass0;
+  #a0si;
+  #apni;
+  #apn;
+  #agst;
+  #agsti;
+  #ttt; // julian century of terrestrial time
+  #jdut1; // julian day of ut1
+  #xp; // in radians
+  #yp; // in radians
+  #omegaearth = vlib.vec(0, 0, 0);
+  #t; // unix time in second UTC0
+  #Aecef2pef;
+  #Apef2ecef;
+  #Apef2eci;
+  #Aeci2pef;
+  /**
+   * Initialize Earth Orientation parameters at given time,
+   * if time is not present, initialize EOP with default values
+   * @param {Date} unixMs - Date value or unix time milliseconds in UTC0.
+   */
+  constructor(unixMs) {
+    this.#initialize_constants();
+    this.setEopTime(unixMs);
+  }
+
+  /**
+   * Update Earth Orientation Parameters (EOP) of the class manually
+   * If this method called without argument, it uses the public EOP values to initialize private members
+   * @public
+   * @param {Object} eop -  EOP object
+   * @param {number} eop.xp -  Pole x coordinate in arcseconds, call setEop() if member is changed without the constructor
+   * @param {number} eop.yp -  Pole y coordinate in arcseconds, call setEop() if member is changed without the constructor
+   * @param {number} eop.dut1 -  UT1 - UTC in seconds, call setEop() if member is changed without the constructor
+   * @param {number} eop.lod -  Length Of Day in seconds
+   * @param {number} eop.dat -  TAI - UTC in seconds, call setEop() if member is changed without the constructor
+   */
+  setEop(eop) {
+    if (eop != undefined) {
+      this.xp = eop.xp;
+      this.yp = eop.yp;
+      this.dut1 = eop.dut1;
+      this.lod = eop.lod;
+      this.dat = eop.dat;
+    }
+    const conv = Math.PI / (180 * 3600); // arcseconds to radians
+    this.#xp = this.xp * conv;
+    this.#yp = this.yp * conv;
+
+    // perform time conversions
+    const jd = unix2jd(this.#t);
+    this.#jdut1 = jd + this.dut1 / 86400.0;
+    // const jdtai = jd + dat/86400.0; // jd of atomic time
+    const jdtt = jd + (this.dat + 32.184) / 86400.0; // jd of terrestrial time
+    this.#ttt = (jdtt - 2451545.0) / 36525.0;
+  }
+
+  /**
+   * Updates Earth Orientation Parameters (EOP) of given time, using EOP data table retrieved from
+   * https://celestrak.org/SpaceData/EOP-Last5Years.csv if the stored table is out of date.
+   * Then updates Aecef2eci and Aeci2ecef properties upon call
+   * needs to be called when precise transformation is necessary (e.g., when datetime of subsequent calls to eci2ecef or ecef2eci are more than one week)
+   * NOTE: the constructor calls this function initially, therefore within close time to the constructor date time,  user may not need to call this method
+   * @public
+   * @param {tUnixMs} eop Date value or unix time milliseconds in UTC0.
+   */
+  setEopTime(tUnixMs) {
+    this.#t = tUnixMs / 1000.0;
+    checkAndUpdateEopFile(this.#t);
+    this.setEop(readEopParameters(this.#t));
+    this.#transform();
+  }
+
+  // initialize constant variables #ass0; #a0si; #apni; #apn; #agst; #agsti
+  // from corresponding .dat files
+  #initialize_constants() {
+    // % " to rad
+    const convrtu = (0.000001 * Math.PI) / (180.0 * 3600.0); // % if micro arcsecond
+    const convrtm = (0.001 * Math.PI) / (180.0 * 3600.0); // % if milli arcsecond
+
+    const as = file2Matrix("iau00s.dat");
+    // multiply 2nd and 3rd columns with convrtu and assign to ass0
+    const ass0 = as
+      .map((row) => row.slice(1, 3))
+      .map((row) => row.map((col) => col * convrtu));
+    const a0si = as.map((row) => row.slice(3));
+
+    const an = file2Matrix("iau03n.dat");
+    // first 5 columns are assigned to apni
+    const apni = an.map((row) => row.slice(0, 5));
+    // rest of collumns are assigned to apn
+    const apn = an
+      .map((row) => row.slice(6))
+      .map((row) => row.map((col) => col * convrtm));
+
+    // read agst and agsti from iau00gs.dat file:
+    const ag = file2Matrix("iau00gs.dat");
+    const agst = ag
+      .map((row) => row.slice(1, 3))
+      .map((row) => row.map((col) => col * convrtu));
+    const agsti = ag.map((row) => row.slice(3));
+    // fs.writeFileSync("pnConstants2.txt", JSON.stringify({agsti:agsti, agst:agst}), "utf8");
+
+    this.#a0si = a0si;
+    this.#ass0 = ass0;
+    this.#apn = apn;
+    this.#apni = apni;
+    this.#agst = agst;
+    this.#agsti = agsti;
+  }
+
+  /**
+   *
+   * @param {Date} unixMs Date value or unix time milliseconds in UTC0.
+   */
+  ecef2eci(unixMs) {
+    this.#t = unixMs / 1000.0;
+    this.#transform();
+  }
+
+  // calculates ecef2eci and eci2ecef transformation matrix
+  // Implemented using Vallado's iau00f2i.m file source code with IAU2000b model
+  #transform() {
+    const ttt = this.#ttt;
+    // %                           function iau00pnb
+    // %
+    // %  this function calulates the transformation matrix that accounts for the
+    // %  effects of precession-nutation in the iau2000b theory.
+    // %
+    // %  reference    :
+    // %    vallado       2004, 212-214
+
+    // % " to rad
+    const convrt = Math.PI / (180.0 * 3600.0);
+
+    // % obtain data for calculations form the 2000b theory
+    const args = fundarg(ttt);
+    let pnsum = 0.0;
+    let ensum = 0.0;
+    for (let i = 76; i >= 0; i--) {
+      const tempval =
+        this.#apni[i][0] * args.l +
+        this.#apni[i][1] * args.l1 +
+        this.#apni[i][2] * args.f +
+        this.#apni[i][3] * args.d +
+        this.#apni[i][4] * args.omega;
+      pnsum +=
+        (this.#apn[i][0] + this.#apn[i][1] * ttt) * Math.sin(tempval) +
+        (this.#apn[i][4] + this.#apn[i][5] * ttt) * Math.cos(tempval);
+      ensum +=
+        (this.#apn[i][2] + this.#apn[i][3] * ttt) * Math.cos(tempval) +
+        (this.#apn[i][6] + this.#apn[i][7] * ttt) * Math.sin(tempval);
+    }
+
+    // % ------ form the planetary arguments
+    let pplnsum = -0.000135 * convrt; //% " to rad
+    let eplnsum = 0.000388 * convrt;
+
+    // %  add planetary and luni-solar components.
+    let deltapsi = pnsum + pplnsum;
+    let deltaeps = ensum + eplnsum;
+    const p = precess(ttt);
+
+    const oblo = 84381.406 * convrt; //% " to rad
+
+    // % ----------------- find nutation matrix ----------------------
+    // % mean to true
+    const a1 = vlib.rot1mat(p.ea + deltaeps);
+    const a2 = vlib.rot3mat(deltapsi);
+    const a3 = vlib.rot1mat(-p.ea);
+
+    // % j2000 to date (precession)
+    const a4 = vlib.rot3mat(-p.xa);
+    const a5 = vlib.rot1mat(p.wa);
+    const a6 = vlib.rot3mat(p.psia);
+    const a7 = vlib.rot1mat(-oblo);
+
+    // % icrs to j2000
+    const a8 = vlib.rot1mat(-0.0068192 * convrt);
+    const a9 = vlib.rot2mat(0.041775 * Math.sin(oblo) * convrt);
+    // ?%      a9  = rot2mat(0.0166170*convrt);
+    const a10 = vlib.rot3mat(0.0146 * convrt);
+
+    // a10*a9*a8*a7*a6*a5*a4
+    const prec = vlib.MxM(
+      a10,
+      vlib.MxM(a9, vlib.MxM(a8, vlib.MxM(a7, vlib.MxM(a6, vlib.MxM(a5, a4)))))
+    );
+
+    // a3*a2*a1
+    const nut = vlib.MxM(a3, vlib.MxM(a2, a1));
+
+    const pnb = vlib.MxM(prec, nut);
+    // %                     END OF function iau00pnb
+
+    //************************************************************************** */
+
+    // %                           function iau00gst
+    // %
+    // %  this function finds the iau2000 greenwich sidereal time.
+    // %
+    // %  outputs       :
+    // %    gst         - greenwich sidereal time        0 to twopi rad
+    // %    st          - transformation matrix
+    // %
+    // %  references    :
+    // %    vallado       2004, 216
+
+    const deg2rad = Math.PI / 180.0;
+
+    const ttt2 = ttt * ttt;
+    const ttt3 = ttt2 * ttt;
+    const ttt4 = ttt2 * ttt2;
+
+    // % mean obliquity of the ecliptic
+    let epsa = 84381.448 - 46.84024 * ttt - 0.00059 * ttt2 + 0.001813 * ttt3; // % "
+    epsa = (epsa / 3600.0) % 360.0; // % deg
+    epsa = epsa * deg2rad; // % rad
+
+    // %  evaluate the ee complementary terms
+    let gstsum0 = 0.0;
+    for (let i = 32; i >= 0; i--) {
+      const tempval =
+        this.#agsti[i][0] * args.l +
+        this.#agsti[i][1] * args.l1 +
+        this.#agsti[i][2] * args.f +
+        this.#agsti[i][3] * args.d +
+        this.#agsti[i][4] * args.omega +
+        this.#agsti[i][5] * args.lonmer +
+        this.#agsti[i][6] * args.lonven +
+        this.#agsti[i][7] * args.lonear +
+        this.#agsti[i][8] * args.lonmar +
+        this.#agsti[i][9] * args.lonjup +
+        this.#agsti[i][10] * args.lonsat +
+        this.#agsti[i][11] * args.lonurn +
+        this.#agsti[i][12] * args.lonnep +
+        this.#agsti[i][13] * args.precrate;
+      gstsum0 +=
+        this.#agst[i][0] * Math.sin(tempval) +
+        this.#agst[i][1] * Math.cos(tempval); // % rad
+    }
+
+    // gstsum1 = 0.0;
+    // for j = 1: -1 : 1
+    //     i = 33 + j;
+    let i = 33;
+    const tempval =
+      this.#agsti[i][0] * args.l +
+      this.#agsti[i][1] * args.l1 +
+      this.#agsti[i][2] * args.f +
+      this.#agsti[i][3] * args.d +
+      this.#agsti[i][4] * args.omega +
+      this.#agsti[i][5] * args.lonmer +
+      this.#agsti[i][6] * args.lonven +
+      this.#agsti[i][7] * args.lonear +
+      this.#agsti[i][8] * args.lonmar +
+      this.#agsti[i][9] * args.lonjup +
+      this.#agsti[i][10] * args.lonsat +
+      this.#agsti[i][11] * args.lonurn +
+      this.#agsti[i][12] * args.lonnep +
+      this.#agsti[i][13] * args.precrate;
+    const gstsum1 =
+      (this.#agst[i][0] * Math.sin(tempval) +
+        this.#agst[i][1] * Math.cos(tempval)) *
+      ttt;
+
+    const eect2000 = gstsum0 + gstsum1 * ttt; // % rad
+
+    // % equation of the equinoxes
+    const ee2000 = deltapsi * Math.cos(epsa) + eect2000; //  % rad
+
+    // %  earth rotation angle
+    const tut1d = this.#jdut1 - 2451545.0;
+    const twopi = 2 * Math.PI;
+    let era = twopi * (0.779057273264 + 1.00273781191135448 * tut1d);
+    era = era % twopi; //  % rad
+
+    // %  greenwich mean sidereal time, iau 2000.
+    const gmst2000 =
+      era +
+      (0.014506 +
+        4612.15739966 * ttt +
+        1.39667721 * ttt2 -
+        0.00009344 * ttt3 +
+        0.00001882 * ttt4) *
+        convrt; // % " to rad
+
+    const gst = gmst2000 + ee2000; // % rad
+
+    // % transformation matrix
+    const st = vlib.rot3mat(-gst);
+
+    const pm = polarm(this.#xp, this.#yp, ttt);
+
+    //% ---- setup parameters for velocity transformations
+    const thetasa = 7.29211514670698e-5 * (1.0 - this.lod / 86400.0);
+
+    // reci = Apef2eci * Aecef2pef*recef
+    this.#omegaearth = vlib.vec(0, 0, thetasa);
+    this.#Aecef2pef = pm;
+    this.#Apef2ecef = vlib.MT(pm);
+    this.#Apef2eci = vlib.MxM(pnb, st);
+    this.#Aeci2pef = vlib.MT(this.#Apef2eci);
+    this.Aecef2eci = vlib.MxM(this.#Apef2eci, this.#Aecef2pef);
+    this.Aeci2ecef = vlib.MT(this.Aecef2eci);
+    return this;
+  }
+}
+
+const t = new Date("2019-01-01T00:00:00.000Z");
+const EO = new EarthOrientation(t);
+console.log(EO.Aecef2eci);
