@@ -15,6 +15,7 @@
 
 const vlib = require("../vectorLib/vector");
 const fs = require("fs");
+let folderPath = "./";
 
 // test code:
 
@@ -182,7 +183,6 @@ function iau00pnb(ttt) {
 
   // % obtain data for calculations form the 2000b theory
   const args = fundarg(ttt);
-  console.log(args);
   const pnConst = generateIau00in_constants();
   let pnsum = 0.0;
   let ensum = 0.0;
@@ -378,14 +378,14 @@ function generateIau00in_constants() {
   const convrtu = (0.000001 * Math.PI) / (180.0 * 3600.0); // % if micro arcsecond
   const convrtm = (0.001 * Math.PI) / (180.0 * 3600.0); // % if milli arcsecond
 
-  const as = file2Matrix("iau00s.dat");
+  const as = file2Matrix(folderPath+"iau00s.dat");
   // multiply 2nd and 3rd columns with convrtu and assign to ass0
   const ass0 = as
     .map((row) => row.slice(1, 3))
     .map((row) => row.map((col) => col * convrtu));
   const a0si = as.map((row) => row.slice(3));
 
-  const an = file2Matrix("iau03n.dat");
+  const an = file2Matrix(folderPath+"iau03n.dat");
   // first 5 columns are assigned to apni
   const apni = an.map((row) => row.slice(0, 5));
   // rest of collumns are assigned to apn
@@ -544,7 +544,7 @@ function iau00gst(
 
   // read agst and agsti from iau00gs.dat file:
   const convrtu = (0.000001 * Math.PI) / (180.0 * 3600.0); // % if micro arcsecond
-  const ag = file2Matrix("iau00gs.dat");
+  const ag = file2Matrix(folderPath+"iau00gs.dat");
   const agst = ag
     .map((row) => row.slice(1, 3))
     .map((row) => row.map((col) => col * convrtu));
@@ -736,7 +736,7 @@ async function updateEopFile() {
   await fetch(url)
     .then(async (response) => {
       let data = await response.text();
-      fs.writeFileSync("eopData.csv", data, "utf8");
+      fs.writeFileSync(folderPath+"eopData.csv", data, "utf8");
     })
     .catch((err) =>
       console.log(
@@ -749,7 +749,7 @@ async function updateEopFile() {
 // check eop file and update if it is outdated
 // tCheck is in unix seconds
 function checkAndUpdateEopFile(tCheck) {
-  const lines = readFile("eopData.csv");
+  const lines = readFile(folderPath+"eopData.csv");
   const lastLineValues = lines[lines.length - 2].split(",");
   const lastDate = new Date(1000 * mjd2unix(lastLineValues[1])) / 1000.0;
   if (tCheck == undefined) tCheck = new Date() / 1000.0;
@@ -764,7 +764,7 @@ function checkAndUpdateEopFile(tCheck) {
 // parameter at begin of the day of the unix seconds is used,
 // no data interpolation is made
 function readEopParameters(tUnix) {
-  const lines = readFile("eopData.csv");
+  const lines = readFile(folderPath+"eopData.csv");
   const firstLineValues = lines[1].split(",");
   const lastLineValues = lines[lines.length - 3].split(",");
   const mjdFirst = new Date(parseFloat(firstLineValues[1]));
@@ -800,6 +800,7 @@ function readEopParameters(tUnix) {
 
 /** Class for applying ECEF to ECI or vice-versa coordinate transforms.
  * Retrieving Earth Orientation parameters from web
+ * @class
  */
 class EarthOrientation {
   // public members:
@@ -895,12 +896,25 @@ class EarthOrientation {
    * Initialize Earth Orientation parameters at given time,
    * if time is not present, initialize EOP with default values
    * @param {Date} unixMs - Date value or unix time milliseconds in UTC0.
+   * @param {String} relPath - Relative path of Earth Orientation folder w.r.t. project
    */
-  constructor(unixMs) {
+  constructor(unixMs, relPath) {
+    if (relPath == undefined)
+      folderPath = "./";
+    else
+      folderPath = relPath;
     this.#initialize_constants();
     this.setEopTime(unixMs);
   }
 
+   /**
+    * Return relative path w.r.t caller path, the path can only be set on new object declaration
+   * @public
+   * @member getRelativePath - relative path of EarthOrientation folder w.r.t caller path, only used during class object construct, do not set
+   * @returns - relative folder path to .dat and .csv files
+   */
+   getRelativePath(){ return folderPath };
+   
   /**
    * Update Earth Orientation Parameters (EOP) of the class manually
    * If this method called without argument, it uses the public EOP values to initialize private members
@@ -945,7 +959,7 @@ class EarthOrientation {
     this.#t = tUnixMs / 1000.0;
     checkAndUpdateEopFile(this.#t);
     this.setEop(readEopParameters(this.#t));
-    this.#transform();
+    this.transform(tUnixMs);
   }
 
   // initialize constant variables #ass0; #a0si; #apni; #apn; #agst; #agsti
@@ -955,14 +969,14 @@ class EarthOrientation {
     const convrtu = (0.000001 * Math.PI) / (180.0 * 3600.0); // % if micro arcsecond
     const convrtm = (0.001 * Math.PI) / (180.0 * 3600.0); // % if milli arcsecond
 
-    const as = file2Matrix("iau00s.dat");
+    const as = file2Matrix(folderPath+"iau00s.dat");
     // multiply 2nd and 3rd columns with convrtu and assign to ass0
     const ass0 = as
       .map((row) => row.slice(1, 3))
       .map((row) => row.map((col) => col * convrtu));
     const a0si = as.map((row) => row.slice(3));
 
-    const an = file2Matrix("iau03n.dat");
+    const an = file2Matrix(folderPath+"iau03n.dat");
     // first 5 columns are assigned to apni
     const apni = an.map((row) => row.slice(0, 5));
     // rest of collumns are assigned to apn
@@ -971,7 +985,7 @@ class EarthOrientation {
       .map((row) => row.map((col) => col * convrtm));
 
     // read agst and agsti from iau00gs.dat file:
-    const ag = file2Matrix("iau00gs.dat");
+    const ag = file2Matrix(folderPath+"iau00gs.dat");
     const agst = ag
       .map((row) => row.slice(1, 3))
       .map((row) => row.map((col) => col * convrtu));
@@ -987,17 +1001,24 @@ class EarthOrientation {
   }
 
   /**
-   *
+   * TODO: to be implemented
    * @param {Date} unixMs Date value or unix time milliseconds in UTC0.
+   * @returns {EarthOrientation}
    */
   ecef2eci(unixMs) {
-    this.#t = unixMs / 1000.0;
-    this.#transform();
+    this.transform(unixMs);
   }
 
-  // calculates ecef2eci and eci2ecef transformation matrix
-  // Implemented using Vallado's iau00f2i.m file source code with IAU2000b model
-  #transform() {
+  
+  /**
+   * calculates Aecef2eci and Aeci2ecef transformation matrix, does not update ECEF or ECI pos, vel and acc values
+   * Implemented using Vallado's iau00f2i.m file source code with IAU2000b model
+   * 
+   * @param {Date} unixMs Date value or unix time milliseconds in UTC0.
+   * @returns {EarthOrientation} the EarthOrientation object
+   */
+  transform(unixMs) {
+    this.#t = unixMs / 1000.0;
     const ttt = this.#ttt;
     // %                           function iau00pnb
     // %
@@ -1184,6 +1205,11 @@ class EarthOrientation {
   }
 }
 
-const t = new Date("2019-01-01T00:00:00.000Z");
-const EO = new EarthOrientation(t);
-console.log(EO.Aecef2eci);
+// test code
+// const t = new Date("2019-01-01T00:00:00.000Z");
+// const EO = new EarthOrientation(t);
+// console.log(EO.Aecef2eci);
+
+module.exports = {
+  EarthOrientation,
+}
